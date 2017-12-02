@@ -71,6 +71,39 @@ public class WordCount {
                System.exit(1);
            }
        }
+        /**todo::: Apperently large input such as google 2.5 gb does not work, it crashes for null pointer
+         * todo::: when it tries to split the data.
+         * 17/12/03 00:39:35 INFO mapred.MapTask: Processing split: hdfs://localhost:50071/largeInput:2818572288+15060575
+         17/12/03 00:39:35 INFO mapred.MapTask: (EQUATOR) 0 kvi 26214396(104857584)
+         17/12/03 00:39:35 INFO mapred.MapTask: mapreduce.task.io.sort.mb: 100
+         17/12/03 00:39:35 INFO mapred.MapTask: soft limit at 83886080
+         17/12/03 00:39:35 INFO mapred.MapTask: bufstart = 0; bufvoid = 104857600
+         17/12/03 00:39:35 INFO mapred.MapTask: kvstart = 26214396; length = 6553600
+         17/12/03 00:39:35 INFO mapred.MapTask: Map output collector class = org.apache.hadoop.mapred.MapTask$MapOutputBuffer
+         17/12/03 00:39:35 INFO mapred.MapTask: Starting flush of map output
+         17/12/03 00:39:35 INFO mapred.LocalJobRunner: map task executor complete.
+         17/12/03 00:39:35 INFO mapred.LocalJobRunner: map > sort
+         17/12/03 00:39:35 WARN mapred.LocalJobRunner: job_local1758314146_0003
+         java.lang.Exception: java.lang.NullPointerException
+         at org.apache.hadoop.mapred.LocalJobRunner$Job.runTasks(LocalJobRunner.java:462)
+         at org.apache.hadoop.mapred.LocalJobRunner$Job.run(LocalJobRunner.java:522)
+         Caused by: java.lang.NullPointerException
+         at org.apache.hadoop.mapred.MapTask$MapOutputBuffer.collect(MapTask.java:1068)
+         at org.apache.hadoop.mapred.MapTask$NewOutputCollector.write(MapTask.java:712)
+         at org.apache.hadoop.mapreduce.task.TaskInputOutputContextImpl.write(TaskInputOutputContextImpl.java:89)
+         at org.apache.hadoop.mapreduce.lib.map.WrappedMapper$Context.write(WrappedMapper.java:112)
+         at WordCount$Map3.map(WordCount.java:289)
+         at WordCount$Map3.map(WordCount.java:285)
+         at org.apache.hadoop.mapreduce.Mapper.run(Mapper.java:145)
+         at org.apache.hadoop.mapred.MapTask.runNewMapper(MapTask.java:784)
+         at org.apache.hadoop.mapred.MapTask.run(MapTask.java:341)
+         at org.apache.hadoop.mapred.LocalJobRunner$Job$MapTaskRunnable.run(LocalJobRunner.java:243)
+         at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)
+         at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+         at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+         at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+         at java.lang.Thread.run(Thread.java:748)
+         */
 
 
        String tripletsInput="/output3/part-r-00000";

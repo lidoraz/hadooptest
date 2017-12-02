@@ -238,7 +238,7 @@ public class WordCount {
                 double k3=(Math.log10(N3+1)+1)/(Math.log10(N3+1)+2);
 
                 double prob=k3*(N3/c2)+(1-k3)*k2*(N2/c1)+(1-k3)*(1-k2)*(N1/c0);
-                logger.info("%%%%%%% SUCCESSS one");
+                logger.info("%%%% SUCCESSS one");
                 context.write(key, new Text(Double.toString(prob)));
             }catch (Exception exp){
                 logger.warn("got exp:");

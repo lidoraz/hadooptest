@@ -63,13 +63,14 @@ public class NgramRecordReader extends RecordReader <Text,IntWritable> {
     //private methods:
     private Text parseNGram(String s) {
         String[] splitted = s.split("\t");
-        if (splitted.length < 5) { return null; } /* malformed line, skip it. */ //TODO: deal
+        //todo: deal with malformed line ?
+//        if (splitted.length < 5) { return null; } /* malformed line, skip it. */ //TODO: deal
         String ngram = splitted[0];
         return new Text(ngram);
     }
     private IntWritable parseCount(String s){
         String[] splitted = s.split("\t");
-        if (splitted.length < 5) { return null; } /* malformed line, skip it. */ //TODO: deal
+//        if (splitted.length < 5) { return null; } /* malformed line, skip it. */ //TODO: deal
         String count = splitted[2];
         return new IntWritable(Integer.valueOf(count));
     }

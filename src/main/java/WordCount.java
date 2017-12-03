@@ -1,8 +1,5 @@
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintStream;
+import java.io.*;
 import java.net.URI;
 import java.rmi.UnexpectedException;
 import java.util.Arrays;
@@ -186,7 +183,7 @@ public class WordCount {
         private static StringBuilder output;
 
         private Logger logger = org.apache.log4j.Logger.getLogger(Reducer1.class);
-
+        private int expCounter=0;
 
         public void setup(Reducer.Context context) throws IOException {
 
@@ -195,45 +192,48 @@ public class WordCount {
             singlesMap=new ConcurrentHashMap<String, Integer>();
             //load data
 
-            try {
-
                 FileSystem fs = FileSystem.get(context.getConfiguration());
 
                 logger.info("########fs.getHomeDirectory() : "+fs.getHomeDirectory());
                 FileStatus[] list=fs.listStatus(new Path("/"));
                 logger.info("@@arrays.tostring::");
                 logger.info(Arrays.toString(list));
-                FSDataInputStream singlesInputStream =fs.open(new Path("output3/part-r-00000")); //singles//todo: wat
-                FSDataInputStream pairsInputStream =fs.open(new Path("output2/part-r-00000")); //pairs
+                //todo: look on the pathString / or without matters.
+                FSDataInputStream singlesInputStream =fs.open(new Path("/output1/part-r-00000")); //singles//todo: wat
+                FSDataInputStream pairsInputStream =fs.open(new Path("/output2/part-r-00000")); //pairs
 
-                BufferedReader reader = new BufferedReader(new InputStreamReader(singlesInputStream,"UTF8"));
+                BufferedReader reader = new BufferedReader(new InputStreamReader(singlesInputStream,"UTF-8"));
                 String line;
                 String[] splitted;
+//                output.append("@@going on singles\n");
                 while ((line = reader.readLine()) != null) {
-                    output.append("\n");
-                    output.append(line + "\n");
+//                    output.append("\n");
+//                    output.append(line + "\n");
                     splitted = line.split("\t");
                     singlesMap.put(splitted[0],Integer.valueOf(splitted[1]));
                 }
-
-                reader = new BufferedReader(new InputStreamReader(pairsInputStream,"UTF8"));
+//                output.append("@@going on pairs\n");
+                reader = new BufferedReader(new InputStreamReader(pairsInputStream,"UTF-8"));
                 while ((line = reader.readLine()) != null) {
+//                    output.append("\n");
+//                    output.append(line + "\n");
                     splitted = line.split("\t");
                     pairsMap.put(splitted[0],Integer.valueOf(splitted[1]));
                 }
 
                 //System.out.println(out.toString());   //Prints the string content read from input stream
                 reader.close();
-                logger.info("logging");
+                logger.info("-reducer1: finish setup");
 
-
-            } catch(Exception e) {
-                e.printStackTrace();
-            }
         }
         public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
-
-
+           // logger.info("starting reduce");
+            //this never null
+//            if(key==null ||values==null){
+//                logger.info("384$$$got null in key");
+//                return;
+//               // output.append("384$$$got null in key" );
+//            }
 
             int sum = 0;
             for (IntWritable value : values) {
@@ -245,57 +245,84 @@ public class WordCount {
 //            logger.info("reduce:::"+ Arrays.toString(splited));
 //            logger.info("singlesMap.size"+ singlesMap.size());
 //            logger.info("pairsMap.size"+ pairsMap.size());
-
-            Iterator e=singlesMap.keySet().iterator();
-            for(int i=0 ; i<10;i++){
-
-            }
-
-           output.append(" $$parirsMAPP ");
-             e=pairsMap.keySet().iterator();
-            for(int i=0 ; i<10;i++){
-
-            }
+////
+//            Iterator e=singlesMap.keySet().iterator();
+//            for(int i=0 ; i<10;i++){
+//
+//            }
+//
+//           output.append(" $$parirsMAPP ");
+//             e=pairsMap.keySet().iterator();
+//            for(int i=0 ; i<10;i++){
+//
+//            }
 
             try{
                 String w1 = splited[0];
                 String w2 = splited[1];
                 String w3 = splited[2];
-                int N1 = singlesMap.get(w3);
-                int N2 = pairsMap.get(w2 + " " + w3);
-                int N3 = sum;
-                int c0 = singlesMap.get("sumOfALLWords");
-                int c1 = singlesMap.get(w2);
-                int c2 = pairsMap.get(w1 + " " + w2);
-                double k2 = (Math.log10(N2+1)+1)/(Math.log10(N2+1)+2);
-                double k3=(Math.log10(N3+1)+1)/(Math.log10(N3+1)+2);
+                Integer n1=singlesMap.get(w3);
+                Integer n2 = pairsMap.get(w2 + " " + w3);
+                int n3 = sum;
+                Integer c0 = singlesMap.get("sumOfALLWords");
+                Integer c1 = singlesMap.get(w2);
+                Integer c2 = pairsMap.get(w1 + " " + w2);
+                if(n1==null){
+                    logger.warn("got null for "+ w3);
+                    return;
+                }
+                if(n2==null){
+                    logger.warn("got null for "+ w2 + " " + w3);
+                    return;
+                }
+                if(c0==null){
+                    logger.warn("got null for "+ "sumOfALLWords");
+                    return;
+                }
+                if(c1==null){
+                    logger.warn("got null for "+ w2);
+                    return;
+                }
+                if(c2==null){
+                    logger.warn("got null for "+ w1 + " " + w2);
+                    return;
+                }
 
-                double prob=k3*(N3/c2)+(1-k3)*k2*(N2/c1)+(1-k3)*(1-k2)*(N1/c0);
-                logger.info("%%%% SUCCESSS one");
+                double k2 = (Math.log10(n2+1)+1)/(Math.log10(n2+1)+2);
+                double k3=(Math.log10(n3+1)+1)/(Math.log10(n3+1)+2);
+
+                double prob=k3*(n3/c2)+(1-k3)*k2*(n2/c1)+(1-k3)*(1-k2)*(n1/c0);
+                //logger.info("%%%% SUCCESSS one");
                 context.write(key, new Text(Double.toString(prob)));
-            }catch (Exception exp){
-                logger.warn("got exp:");
-                logger.warn(exp.getMessage());
+            }catch (NullPointerException exp){
+                logger.warn("got exp: i=" +expCounter++ +"\n");
             }
 
 
         }
         public void cleanup(Context context) throws IOException {
-            FileSystem fs=FileSystem.get(context.getConfiguration());
-            FSDataOutputStream fin = fs.create(new Path("/meniAdler"));
 
-            fin.writeUTF(output.toString());
-            fin.close();
+            //todo: this has some useful code example to write logs into hdfs
+//            FileSystem fs=FileSystem.get(context.getConfiguration());
+//            FSDataOutputStream fin = fs.create(new Path("/meniAdler"));
+
+            logger.info( "singlesMap.size: "+ singlesMap.size()+"\n");
+            logger.info( "pairsMap.size: "+ pairsMap.size()+"\n");
+//            fin.writeUTF(done);
+//            fin.close();
         }
     }
-
+    //todo: Change IntWriteable into LongWriteable, since we are dealing with word counting.
 
 
     public static class Map1 extends Mapper<Text, IntWritable, Text, IntWritable> {
+        private Logger logger = org.apache.log4j.Logger.getLogger(Map1.class);
+        public void setup(Context context){
+        }
 
         public void map(Text key, IntWritable value, Context context) throws IOException, InterruptedException {
-
             String[] ngram_words = key.toString().split(" ");
+
             context.write(new Text(ngram_words[0]), value);
             context.write(new Text(ngram_words[1]), value);
             context.write(new Text(ngram_words[2]), value);

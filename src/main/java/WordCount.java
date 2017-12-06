@@ -1,27 +1,17 @@
 
 import java.io.*;
-import java.net.URI;
-import java.rmi.UnexpectedException;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Set;
-import java.util.logging.FileHandler;
+import java.util.*;
 
 import N_Gram.NgramInputFormat;
+import N_Gram.SProbInputFormat;
 import N_Gram.TripletsInputFormat;
-import com.sun.corba.se.spi.ior.Writeable;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.filecache.DistributedCache;
 import org.apache.hadoop.fs.*;
 import org.apache.hadoop.io.*;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
-import org.apache.hadoop.mapreduce.Partitioner;
 import org.apache.hadoop.mapreduce.Reducer;
-import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
-import org.apache.hadoop.mapreduce.lib.input.SequenceFileAsTextInputFormat;
-import org.apache.hadoop.mapreduce.lib.join.TupleWritable;
+import org.apache.hadoop.mapreduce.lib.input.MultipleInputs;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.jboss.netty.util.internal.ConcurrentHashMap;
@@ -35,10 +25,15 @@ public class WordCount {
     final static String userPath = "/user/Administrator";
 
     public static void main(String[] args) throws Exception {
-//        String inputFile="/dataHeb";
-//        String output1="/output1";
-//        String output2="/output2";
-//        String output3="/output3";
+
+
+        String inputFile = "/dataHeb";
+        String output=args[1];
+        String output1 = "/output1";
+        String output2 = "/output2";
+        String output3 = "/output3";
+
+        String outputSort="/outputSort";
 
         //files: all tuples occurensces.
         //      all pairs occurenets  w1 w2 w3 - > w1 w2 , w2 w3
@@ -71,22 +66,26 @@ public class WordCount {
         }
 
 
-        String tripletsInput = "/output3/part-r-00000";
+        boolean isSuccess = getProbabilties(c, files[1]);
+        if (!isSuccess) {
+            System.exit(1);
+        }
 
-        Job j3 = new Job(c, "last JOB");
+        //sort with another map reduce.
+        Job j3 = new Job(c, "sort keys with prob");
         j3.setJarByClass(WordCount.class);
-        j3.setMapperClass(Mapper1.class);
-        j3.setReducerClass(Reducer1.class);
+        j3.setMapperClass(MapSortProb.class);
+        j3.setReducerClass(ReduceSortProb.class);
+        j3.setMapOutputKeyClass(Text.class);
+        j3.setMapOutputValueClass(PairWritableDouble.class);
         j3.setOutputKeyClass(Text.class);
-        j3.setOutputValueClass(IntWritable.class);
-        j3.setInputFormatClass(TripletsInputFormat.class);
-        TripletsInputFormat.addInputPath(j3, new Path(tripletsInput));
-        FileOutputFormat.setOutputPath(j3, new Path(files[1]));
+        j3.setOutputValueClass(DoubleWritable.class);
+        j3.setInputFormatClass(SProbInputFormat.class);
+        NgramInputFormat.addInputPath(j3, new Path(output)); //todo: refractor here
+        FileOutputFormat.setOutputPath(j3, new Path (outputSort));
 
-//        Job job = Job.getInstance(new Configuration());
-//        job.addCacheFile(new URI ("/path/to/file.csv"));
 
-        System.exit(j3.waitForCompletion(true) ? 0 : 1);
+        System.exit( j3.waitForCompletion(true)? 0 : 1);
     }
 
     public static boolean initData(Configuration c, String in, String output) throws IOException, ClassNotFoundException, InterruptedException {
@@ -112,8 +111,12 @@ public class WordCount {
         j2.setJarByClass(WordCount.class);
         j2.setMapperClass(Map2.class);
         j2.setReducerClass(Reducer2.class);
-        j2.setOutputKeyClass(Text.class);
-        j2.setOutputValueClass(IntWritable.class);
+//todo: see why tupleWriteable in the reduce is all empty.
+        j2.setMapOutputKeyClass(Text.class);
+        j2.setMapOutputValueClass(PairWritableInteger.class);
+
+//        j2.setOutputKeyClass(Text.class);
+//        j2.setOutputValueClass(IntWritable.class);
         j2.setInputFormatClass(NgramInputFormat.class);
         NgramInputFormat.addInputPath(j2, input);
         FileOutputFormat.setOutputPath(j2, output2);
@@ -136,54 +139,73 @@ public class WordCount {
 
     }
 
-    public static class Mapper1 extends Mapper<Text, IntWritable, Text, TupleWritable> {
-        private Logger logger = org.apache.log4j.Logger.getLogger(Mapper1.class);
+    public static boolean getProbabilties(Configuration c,String output) throws IOException, ClassNotFoundException, InterruptedException {
+        String tripletsInput = "/output3/part-r-00000";
+        String pairsInput = "/output2/part-r-00000";
+        //todo: add 2 inputs files here:
+        // output 3 and output 2
+        Job j3 = new Job(c, "Join triplets with pairs - calc prob");
+        MultipleInputs.addInputPath(j3, new Path(tripletsInput), TripletsInputFormat.class, MapperJoinProbTriplet.class);
+        MultipleInputs.addInputPath(j3, new Path(pairsInput), TripletsInputFormat.class, MapperJoinProbPair.class);
 
 
-        //todo: http://dailyhadoopsoup.blogspot.co.il/2014/01/mutiple-input-files-in-mapreduce-easy.html
+        j3.setJarByClass(WordCount.class);
+        j3.setReducerClass(ReducerJoinProb.class);
+        j3.setOutputKeyClass(Text.class);
+        j3.setMapOutputKeyClass(Text.class);
+        j3.setMapOutputValueClass(PairWritableInteger.class);
+
+        j3.setOutputValueClass(DoubleWritable.class);
+        //j3.setInputFormatClass(Multip.class);
+        TripletsInputFormat.addInputPath(j3, new Path(tripletsInput));
+        FileOutputFormat.setOutputPath(j3, new Path(output));
+
+
+        return j3.waitForCompletion(true);
+    }
+    public static class MapperJoinProbPair extends Mapper<Text, IntWritable, Text, PairWritableInteger> {
+        private Logger logger = org.apache.log4j.Logger.getLogger(MapperJoinProbPair.class);
 
         public void map(Text key, IntWritable value, Context context) throws IOException, InterruptedException {
-            String[] splitted = key.toString().split(" ");
 
-            Writable[] values = new Writable[2];
-            //todo: change values.length==3, it will hold
-            values[1] = value;
-            if (splitted.length == 5) {
+            String[] splitted;
+            PairWritableInteger pair = new PairWritableInteger();
+            pair.setSecond(value.get());
 
-                //Danny Went ,Danny went home 30, 5
-                // pair      , triplet    globalPairCount, triplet count
-                //todo: debug here
-                //todo: Change intWritable into Long Writable
-                //this is the pair +3gram
-                String gram3 = splitted[2] + " " + splitted[3] + " " + splitted[4];
-                values[0] = new Text(splitted[0] + " " + splitted[1]);
+            splitted = key.toString().split("T");
+            String pairWords = splitted[0];
+            String tripletWords = splitted[1];
+            //Danny Went ,Danny went home 30
+            // pair      , triplet    value:globalPairCount
+            //this is the pair +3gram
+            pair.setFirst(pairWords);
+            context.write(new Text(tripletWords), pair);
 
-                context.write(new Text(gram3), new TupleWritable(values));
-            } else {
-                values[0] = key;
 
-                context.write(key, new TupleWritable(values));
-            }
+
+        }
+    }
+    public static class MapperJoinProbTriplet extends Mapper<Text, IntWritable, Text, PairWritableInteger> {
+
+        public void map(Text key, IntWritable value, Context context) throws IOException, InterruptedException {
+
+            PairWritableInteger pair = new PairWritableInteger();
+            pair.setSecond(value.get());
+            context.write(key, pair);
 
         }
     }
 
-    public static class Reducer1 extends Reducer<Text, TupleWritable, Text, DoubleWritable> {
+    public static class ReducerJoinProb extends Reducer<Text, PairWritableInteger, Text, DoubleWritable> {
 
-        //private static ConcurrentHashMap<String,Integer> pairsMap=new ConcurrentHashMap<String, Integer>();
         private static ConcurrentHashMap<String, Integer> singlesMap = new ConcurrentHashMap<String, Integer>();
 
-        private static StringBuilder output;
+        private Logger logger = org.apache.log4j.Logger.getLogger(ReducerJoinProb.class);
 
-        private Logger logger = org.apache.log4j.Logger.getLogger(Reducer1.class);
-        private int expCounter = 0;
-        private String currentTriplete = null;
-        private String currentPairs = null;
 
 
         public void setup(Reducer.Context context) throws IOException {
 
-            output = new StringBuilder();
             //todo: add make the hashmap sharable among other reducers, so it wont be created over and over
             singlesMap = new ConcurrentHashMap<String, Integer>();
             //load data
@@ -203,7 +225,9 @@ public class WordCount {
 
         }
 
-        public void reduce(Text key, Iterable<TupleWritable> values, Context context) throws IOException, InterruptedException {
+        public void reduce(Text key, Iterable<PairWritableInteger> values, Context context) throws IOException, InterruptedException {
+
+            logger.info("key::" +Arrays.toString(key.toString().getBytes()));
             String w1;
             String w2;
             String w3;
@@ -213,116 +237,53 @@ public class WordCount {
             int C0;
             int C1;
             int C2 = 0;
-            String[] splited=key.toString().split(" ");
-            long relvantPairCount1=0,relvantPairCount2=0;
             //got 3gram key. //all values here are related to the same 3gram
             //todo: how do we get the 3gram word count? maybe add it as a value to the output2
             // so a key would be
             // Danny went home , valOfDanny
-            // Danny went home , Danny went, dannyWentCount
+            // Danny went home ,pair(Danny went, dannyWentCount)
             // Danny went home , went home, wentHomeCount.
+            String gram3 = key.toString();
+            String[] splittedGram3 = gram3.split(" ");
 
-            if (splited.length == 3) {
-                for(TupleWritable tuple:values){
-                    Text relvantPair=(Text)tuple.get(0);
+            for (PairWritableInteger pair : values) {
+                String pairWord = pair.getFirst();
 
-                    long relvantPairCount=((LongWritable)tuple.get(1)).get();
+                if (pairWord.equals("")) { //got a key from triplet input
+                    N3 += pair.getSecond();//todo: we love todo
 
-                    //check if its the first pair or the second
-                    String relvantPairString=relvantPair.toString();
-                    if(relvantPairString.equals(splited[0]+" "+splited[1])){
-                        relvantPairCount1+=relvantPairCount;
+                } else {
+                    int pairsCount = pair.getSecond();
+                    logger.info(pairsCount +"$$$$$");
+                    logger.info(pairWord + "||"+gram3);
+                    String[] splitedWords = pairWord.split(" ");
+                    if (splitedWords[0].equals(splittedGram3[0]) && splitedWords[1].equals(splittedGram3[1])) {
+                        //infix:  c2 = pairsMap.get(w1 + " " + w2);
+                        C2 += pairsCount;
+
+                    } else if (splitedWords[0].equals(splittedGram3[1]) && splitedWords[1].equals(splittedGram3[2])) {
+                        //postfix  n2 = pairsMap.get(w2 + " " + w3);
+                        logger.info("got to nCount in splitedWords");
+                        N2 += pairsCount;
+                    } else {
+                        throw new NullPointerException("got bad login else., should not happen");
                     }
-                    else if(relvantPairString.equals(splited[1]+" "+splited[2])){
-                        relvantPairCount2+=relvantPairCount;
-                    }
-                    else{
-                        throw new IllegalStateException("Wrong Comparision in reduce");
-                    }
-
-
                 }
-
             }
-            //got pair
-            else{
-                //todo: should we ignore it?
-            }
-//
-//            String gram3 = splitted[2] + " " + splitted[3] + " " + splitted[4];
-//            values[0] = new Text(splitted[0] + " " + splitted[1]);
-//            context.write(new Text(gram3), new TupleWritable(values));
+            String[] splited = key.toString().split(" ");
+            w1 = splited[0];
+            w2 = splited[1];
+            w3 = splited[2];
+            N1 = singlesMap.get(w3);
+            C1 = singlesMap.get(w2);
+            C0 = singlesMap.get("sumOfALLWords");
+            logger.info("before calc: N2:"+N2 +" N3:"+N3+" C2:"+C2+" C1:"+C1+" C0:"+C0);
 
-//            for (TupleWritable value : values) {
-//                //triplets
-//                if (((IntWritable) value.get(1)).get() == -1) {
-//                    currentTriplete = key.get(0).toString() + " " + key.get(1).toString();
-//                    N3 = ((IntWritable) value.get(0)).get();
-//                }
-//                //pairs
-//                else {
-//                    currentPairs = key.get(0).toString() + " " + key.get(1).toString();
-//                    C2 = ((IntWritable) value.get(0)).get();
-//                    N2 = ((IntWritable) value.get(1)).get();
-//                }
-//            }
-
-//            if (currentTriplete.equals(currentPairs)) {
-                splited = key.toString().split(" ");
-                w1 = splited[0];
-                w2 = splited[1];
-                w3 = splited[3];
-                N1 = singlesMap.get(w3);
-                C1 = singlesMap.get(w2);
-                C0 = singlesMap.get("sumOfALLWords");
-                double k2 = (Math.log10(N2 + 1) + 1) / (Math.log10(N2 + 1) + 2);
-                double k3 = (Math.log10(N3 + 1) + 1) / (Math.log10(N3 + 1) + 2);
-                double prob = k3 * (N3 / C2) + (1 - k3) * k2 * (N2 / C1) + (1 - k3) * (1 - k2) * (N1 / C0);
-                context.write(new Text(w1 + w2 + w3), new DoubleWritable(prob));
-//            }
-
-//            String[] splited = key.toString().split(" ");
-//
-//            try{
-//                String w1 = splited[0];
-//                String w2 = splited[1];
-//                String w3 = splited[2];
-//                Integer n1=singlesMap.get(w3);
-//                Integer n2 = pairsMap.get(w2 + " " + w3);
-//                int n3 = sum;
-//                Integer c0 = singlesMap.get("sumOfALLWords");
-//                Integer c1 = singlesMap.get(w2);
-//                Integer c2 = pairsMap.get(w1 + " " + w2);
-//                if(n1==null){
-//                    logger.warn("got null for "+ w3);
-//                    return;
-//                }
-//                if(n2==null){
-//                    logger.warn("got null for "+ w2 + " " + w3);
-//                    return;
-//                }
-//                if(c0==null){
-//                    logger.warn("got null for "+ "sumOfALLWords");
-//                    return;
-//                }
-//                if(c1==null){
-//                    logger.warn("got null for "+ w2);
-//                    return;
-//                }
-//                if(c2==null){
-//                    logger.warn("got null for "+ w1 + " " + w2);
-//                    return;
-//                }
-//
-//                double k2 = (Math.log10(n2+1)+1)/(Math.log10(n2+1)+2);
-//                double k3=(Math.log10(n3+1)+1)/(Math.log10(n3+1)+2);
-//
-//                double prob=k3*(n3/c2)+(1-k3)*k2*(n2/c1)+(1-k3)*(1-k2)*(n1/c0);
-//                //logger.info("%%%% SUCCESSS one");
-//                context.write(key, new Text(Double.toString(prob)));
-//            }catch (NullPointerException exp){
-//                logger.warn("got exp: i=" +expCounter++ +"\n");
-//            }
+            double k2 = (Math.log10(N2 + 1) + 1) / (Math.log10(N2 + 1) + 2);
+            double k3 = (Math.log10(N3 + 1) + 1) / (Math.log10(N3 + 1) + 2);
+            double prob = k3 * (N3 / C2) + (1 - k3) * k2 * (N2 / C1) + (1 - k3) * (1 - k2) * (N1 / C0);
+            context.write(key, new DoubleWritable(prob));
+            logger.info("@@done write");
 
 
         }
@@ -359,49 +320,54 @@ public class WordCount {
         }
     }
 
-    public static class Map2 extends Mapper<Text, IntWritable, Text, TupleWritable> {
+    public static class Map2 extends Mapper<Text, IntWritable, Text, PairWritableInteger> {
+        private Logger logger = org.apache.log4j.Logger.getLogger(Map2.class);
 
         public void map(Text key, IntWritable value, Context context) throws IOException, InterruptedException {
 
             String[] ngram_words = key.toString().split(" ");
+            PairWritableInteger value_Key = new PairWritableInteger(key.toString(), value.get());
 
-            TupleWritable value_Key = new TupleWritable(new Writable[]{value, key});
-
+            //logger.info("MAP2: " +((IntWritable) value_Key.get(0)).get());
             context.write(new Text(ngram_words[0] + " " + ngram_words[1]), value_Key);
             context.write(new Text(ngram_words[1] + " " + ngram_words[2]), value_Key);
         }
     }
 
-    public static class Reducer2 extends Reducer<Text, TupleWritable, Text, IntWritable> {
-        Set<Text> textSet;
+    public static class Reducer2 extends Reducer<Text, PairWritableInteger, Text, IntWritable> {
+        Set<String> textSet;
+        private Logger logger = org.apache.log4j.Logger.getLogger(Reducer2.class);
 
         public void setup(Context context) {
-            textSet = new HashSet<Text>();
+            textSet = new HashSet<String>();
         }
 
-        public void reduce(Text key, Iterable<TupleWritable> values, Context context) throws IOException, InterruptedException {
+        public void reduce(Text key, Iterable<PairWritableInteger> values, Context context) throws IOException, InterruptedException {
 
             int sum = 0;
-            for (TupleWritable tuple : values) {
-                IntWritable value = (IntWritable) tuple.get(0);
-                sum += value.get();
-                Text gram3 = (Text) tuple.get(1);
+
+            for (PairWritableInteger pair : values) {
+                int sumOfPairs = pair.getSecond();
+                sum += sumOfPairs;
+                String gram3 = pair.getFirst();
+//                logger.info("value:"+value.get() );
                 if (!textSet.contains(gram3)) {
+                    logger.info("REDUCER2:: added " + gram3 + "to the wonderful set N:" + sum);
                     textSet.add(gram3);
                 }
             }
             //this will write all the triplets which are related to the same key- which is a pair
-            for (Text gram3 : textSet) {
+            for (String gram3 : textSet) {
                 //note for splitter in the mapper, first we get the key+ 3gram origin.
-                context.write(new Text(key.toString() + " " + gram3.toString()), new IntWritable(sum));
+                context.write(new Text(key.toString() + "T" + gram3), new IntWritable(sum));
             }
 
             textSet.clear();
-            context.write(key, new IntWritable(sum));
+            //context.write(key, new IntWritable(sum));
         }
     }
 
-    //TODO: To added to init class for data.
+
     public static class Map3 extends Mapper<Text, IntWritable, Text, IntWritable> {
 
         public void map(Text key, IntWritable value, Context context) throws IOException, InterruptedException {
@@ -418,6 +384,35 @@ public class WordCount {
                 sum += value.get();
             }
             context.write(key, new IntWritable(sum));
+        }
+    }
+
+    public static class MapSortProb extends Mapper<Text, DoubleWritable, Text, PairWritableDouble> {
+
+        public void map(Text key, DoubleWritable value, Context context) throws IOException, InterruptedException {
+
+            String[] splitted=key.toString().split(" ");
+            PairWritableDouble pair=new PairWritableDouble(splitted[2],value.get());
+
+            String w1w2=splitted[0]+" "+splitted[1];
+            context.write(new Text(w1w2), pair);
+        }
+    }
+
+
+    public static class ReduceSortProb extends Reducer<Text, PairWritableDouble, Text, DoubleWritable> {
+        public void reduce(Text key, Iterable<PairWritableDouble> values, Context context) throws IOException, InterruptedException {
+            List<PairWritableDouble> valueList=new ArrayList<PairWritableDouble>();
+
+            for (PairWritableDouble value : values) {
+                valueList.add(value);
+            }
+
+            Collections.sort(valueList );
+            for(PairWritableDouble pair:valueList){
+                context.write(new Text(key.toString() +" "+pair.getFirst()),new DoubleWritable(pair.getSecond()) );
+            }
+
         }
     }
 

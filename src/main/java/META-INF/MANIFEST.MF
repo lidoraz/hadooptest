@@ -23,5 +23,5 @@ Class-Path: tools.jar curator-recipes-2.6.0.jar paranamer-2.3.jar acti
  l-1.9.13.jar protobuf-java-2.5.0.jar commons-beanutils-core-1.8.0.jar
   jackson-xc-1.8.3.jar guice-servlet-3.0.jar jsch-0.1.42.jar hadoop-an
  notations-2.6.0.jar guava-11.0.2.jar avro-1.7.4.jar gson-2.2.4.jar
-Main-Class: WordCount
+Main-Class: WordCount.WordCount
 

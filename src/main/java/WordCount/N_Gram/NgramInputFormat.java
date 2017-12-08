@@ -1,7 +1,6 @@
-package N_Gram;
+package WordCount.N_Gram;
 
 import org.apache.hadoop.io.IntWritable;
-import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.*;
 import org.apache.hadoop.mapreduce.InputSplit;

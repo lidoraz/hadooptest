@@ -1,4 +1,6 @@
-package N_Gram;
+package WordCount.N_Gram;
+
+import java.io.IOException;
 
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
@@ -7,15 +9,14 @@ import org.apache.hadoop.mapreduce.RecordReader;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.lib.input.LineRecordReader;
 
-import java.io.IOException;
+public class NgramRecordReader extends RecordReader <Text,IntWritable> {
 
-public class TripletsRecordReader  extends RecordReader<Text,IntWritable> {
-    private org.apache.hadoop.mapreduce.lib.input.LineRecordReader reader;
+    private LineRecordReader reader;
 
 //    protected abstract  User parseUser(String str);
 //    protected abstract UserAction parseUserAction(String str) throws IOException;
 
-    TripletsRecordReader() {
+    NgramRecordReader() {
         reader = new LineRecordReader();
     }
 
@@ -58,14 +59,22 @@ public class TripletsRecordReader  extends RecordReader<Text,IntWritable> {
     //private methods:
     private Text parseNGram(String s) {
         String[] splitted = s.split("\t");
-        //if (splitted.length < 5) { return null; } /* malformed line, skip it. */ //TODO: deal
+        //todo: deal with malformed line ?
+//        if (splitted.length < 5) { return null; } /* malformed line, skip it. */ //TODO: deal
         String ngram = splitted[0];
-        return new Text(ngram);
+        int ngramLen = ngram.length();
+        if(ngram.charAt(ngramLen-1) == ' '){
+            return new Text(ngram.substring(0,ngramLen-1));
+        }
+        else {
+            return new Text(ngram);
+        }
     }
     private IntWritable parseCount(String s){
         String[] splitted = s.split("\t");
-        //if (splitted.length < 1) { return null; } /* malformed line, skip it. */ //TODO: deal
-        String count = splitted[1];
+//        if (splitted.length < 5) { return null; } /* malformed line, skip it. */ //TODO: deal
+        String count = splitted[2];
         return new IntWritable(Integer.valueOf(count));
     }
+
 }

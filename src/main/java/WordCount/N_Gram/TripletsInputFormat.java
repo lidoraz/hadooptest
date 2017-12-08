@@ -1,4 +1,4 @@
-package N_Gram;
+package WordCount.N_Gram;
 
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;

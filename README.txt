@@ -1,5 +1,8 @@
 in order to get into file system need to note few things:
 
+hadoop jar WordCount.WordCount.jar WordCount.WordCount /dataHeb /output Build
+
+wihtout build for only getting the probabilites.
 
 hadoop fs -ls /
 will list all files in root directory.

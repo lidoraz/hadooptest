@@ -58,8 +58,24 @@ public class WordCount {
          */
 
 
+        //todo::
+        // נראה שהדטאטא נשמר בS3 , כלומר זה האאוטפוט של התכנית
+        // לכן נצטרך לתת לאינפוט את הקבצים הללו שנמצאים ב S3 עם הבאקט המתאים.
+        // בנוסף נצטרך להגדיר הכנסה של כמה אינפוטים בתקייה כנראה באמצעות S3 לספור את כל המופעים ולהחזיר את הכתובת שלהם.
+        // לראות איך זה מסתדר עם זה שבמשימה של המיון אנו מכניסם למעשה 2 תקיות
+
         Configuration c = new Configuration();
+
+
+        //check for disk space:
+
+        FileSystem fs=FileSystem.get(c);
+        System.out.println("fs.getStatus().getCapacity(): "+fs.getStatus().getCapacity() );
+        System.out.println("fs.getStatus().getUsed(): "+fs.getStatus().getUsed());
+        System.out.println("fs.getStatus().getRemaining(): "+fs.getStatus().getRemaining() );
         String[] files = new GenericOptionsParser(c, args).getRemainingArgs();
+
+
         //TODO: צריך לראות משהו עם האינפוט, זה לא דוחף ישירות את האגרומנים לתוך הפאת'
 
         //go over all the corpus, generate triples,pairs,and single table with all occurrences.
@@ -110,6 +126,7 @@ public class WordCount {
         j1.setReducerClass(ReduceSumValue.class);
         j1.setOutputKeyClass(Text.class);
         j1.setOutputValueClass(IntWritable.class);
+
         j1.setInputFormatClass(SequenceFileInputFormat.class);
         SequenceFileInputFormat.addInputPath(j1,input);
         FileOutputFormat.setOutputPath(j1, output1);
@@ -121,12 +138,11 @@ public class WordCount {
         j2.setReducerClass(Reducer2.class);
         j2.setMapOutputKeyClass(Text.class);
         j2.setMapOutputValueClass(PairWritableInteger.class);
-
         j2.setOutputKeyClass(Text.class);
         j2.setOutputValueClass(IntWritable.class);
 
-        j1.setInputFormatClass(SequenceFileInputFormat.class);
-        SequenceFileInputFormat.addInputPath(j1,input);
+        j2.setInputFormatClass(SequenceFileInputFormat.class);
+        SequenceFileInputFormat.addInputPath(j2,input);
         FileOutputFormat.setOutputPath(j2, output2);
 
         Job j3 = new Job(c, "job3");
@@ -137,8 +153,7 @@ public class WordCount {
         j3.setOutputValueClass(IntWritable.class);
 
         j3.setInputFormatClass(SequenceFileInputFormat.class);
-        SequenceFileInputFormat.addInputPath(j1,input);
-        FileOutputFormat.setOutputPath(j2, output2);
+        SequenceFileInputFormat.addInputPath(j3,input);
         FileOutputFormat.setOutputPath(j3, output3);
 
         boolean status1 = j1.waitForCompletion(true);
@@ -146,18 +161,52 @@ public class WordCount {
         boolean status3 = j3.waitForCompletion(true);
 //
         return (status1 && status2 && status3);
+//        return (status1 && status3);
        // return status1;
     }
 
     public static boolean getProbabilties(Configuration c,String output) throws IOException, ClassNotFoundException, InterruptedException {
+        //output1 is loaded into ram.
         String tripletsInput = "/output3/part-r-00000";
         String pairsInput = "/output2/part-r-00000";
+
+        FileSystem fs=FileSystem.get(c);
+
+        //todo: list all files in output1 folder:
+        System.out.println("\nchecking FS::\n");
+        RemoteIterator<LocatedFileStatus> iterator=fs.listFiles(new Path("/"),true);
+        while(iterator.hasNext()){
+            LocatedFileStatus fileStatus=iterator.next();
+            System.out.println(fileStatus.toString());
+        }
+        System.out.println("\n\ndone checking fs");
+
+
+        Path output1Path=new Path("/output1/part-r-00000");
+        Path output2Path=new Path(pairsInput);
+        Path output3Path=new Path(tripletsInput);
+        if(!fs.exists(output1Path)){
+            System.out.println("could not find '/output1/part-r-00000' , exit..");
+            return false;
+        }
+        if(!fs.exists(output2Path)){
+            System.out.println("could not find "+pairsInput+", exit..");
+            return false;
+        }
+        if(!fs.exists(output3Path)){
+            System.out.println("could not find "+tripletsInput+", exit..");
+            return false;
+        }
+
+        ;
+        System.out.println("outputPath1 len: "+fs.getFileStatus(output1Path).getLen() +"will be loaded into RAM.");
+
+
         //todo: add 2 inputs files here:
         // output 3 and output 2
         Job j3 = new Job(c, "Join triplets with pairs - calc prob");
-        MultipleInputs.addInputPath(j3, new Path(tripletsInput), TripletsInputFormat.class, MapperJoinProbTriplet.class);
-        MultipleInputs.addInputPath(j3, new Path(pairsInput), TripletsInputFormat.class, MapperJoinProbPair.class);
-
+        MultipleInputs.addInputPath(j3, output3Path, TripletsInputFormat.class, MapperJoinProbTriplet.class);
+        MultipleInputs.addInputPath(j3, output2Path, TripletsInputFormat.class, MapperJoinProbPair.class);
 
         j3.setJarByClass(WordCount.class);
         j3.setReducerClass(ReducerJoinProb.class);
@@ -166,7 +215,6 @@ public class WordCount {
         j3.setMapOutputValueClass(PairWritableInteger.class);
 
         j3.setOutputValueClass(DoubleWritable.class);
-        //j3.setInputFormatClass(Multip.class);
         TripletsInputFormat.addInputPath(j3, new Path(tripletsInput));
         FileOutputFormat.setOutputPath(j3, new Path(output));
 

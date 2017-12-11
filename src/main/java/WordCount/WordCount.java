@@ -4,8 +4,10 @@ import java.io.*;
 
 import WordCount.N_Gram.*;
 import WordCount._3GramMapReduce.GenerateOutputs.*;
-import WordCount._3GramMapReduce.JoinCountProb.*;
 import WordCount.Writable.*;
+import WordCount._3GramMapReduce.JoinProb.MapperJoinProb;
+import WordCount._3GramMapReduce.JoinProb.PartitionerJoinProb;
+import WordCount._3GramMapReduce.JoinProb.ReducerJoinProb;
 import WordCount._3GramMapReduce.SortProb;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.*;
@@ -29,6 +31,12 @@ import org.apache.log4j.Logger;
  *  1.load singles files into RAM (look for shared cluster improvement)
  *  2.with 2 and 3 triplets compute probablities into output4.
  *  3. with output4 last file/redoce to sort by probablity.
+ *
+ *  run params:
+    WordCount.WordCount
+    s3://datasets.elasticmapreduce/ngrams/books/20090715/heb-all/3gram/data
+    s3n://ngram-wordprediction/output/
+    build    (for building dataSet)
  */
 
 public class WordCount {
@@ -37,7 +45,7 @@ public class WordCount {
     public static void main(String[] args) throws Exception {
 
         //todo: look here
-        final boolean isBuildDataSet=true;
+
         String inputFile = "/dataHeb";
         String output=args[1];
         String output1 = "/output1";
@@ -56,14 +64,17 @@ public class WordCount {
          * output2 - pairs todo: with triplets related
          * output3 - triplets
          */
-
+        //TODO: add combiner into the build data task.
 
         //todo::
         // נראה שהדטאטא נשמר בS3 , כלומר זה האאוטפוט של התכנית
         // לכן נצטרך לתת לאינפוט את הקבצים הללו שנמצאים ב S3 עם הבאקט המתאים.
         // בנוסף נצטרך להגדיר הכנסה של כמה אינפוטים בתקייה כנראה באמצעות S3 לספור את כל המופעים ולהחזיר את הכתובת שלהם.
         // לראות איך זה מסתדר עם זה שבמשימה של המיון אנו מכניסם למעשה 2 תקיות
-
+        // we need to change the output arguments:
+        // output is set too s3n://ngram-wordprediction/output/
+        // but that the final output, other outputs should be on the cluster itself,
+        // meaning: instead of s3n://ngram-wordprediction/output/ as output value, set to output/+folder.
         Configuration c = new Configuration();
 
 
@@ -79,17 +90,18 @@ public class WordCount {
         //TODO: צריך לראות משהו עם האינפוט, זה לא דוחף ישירות את האגרומנים לתוך הפאת'
 
         //go over all the corpus, generate triples,pairs,and single table with all occurrences.
-//        boolean isBuildDataSet = false;
-//        if (files.length > 2) {
-//            isBuildDataSet = files[2].contains("build");
-//        }
-//
-//
+        boolean isBuildDataSet = false;
+        if (files.length > 2) {
+            isBuildDataSet = files[2].contains("build");
+        }
 
+//
+        String hdfsOutput="/output/";
         if (isBuildDataSet) {
             System.out.println("getting started with building data");
             logger.info("getting started with building data");
-            if (!initData(c, files[0], files[1])) {
+            logger.info("@@@"+files[0]);
+            if (!initData(c, files[0], hdfsOutput)) {
                 System.exit(1);
             }
         }
@@ -97,20 +109,20 @@ public class WordCount {
 
         //when done open this:
 
-        String sortedData="/outputJoinProb/part-r-00000";
+        String sortedData="/outputJoinProb/";
         System.out.println("getting started with building probabilities");
-        if (!getProbabilties(c, sortedData)) {
+        if (!getProbabilties(c,hdfsOutput, sortedData)) {
             System.exit(1);
         }
         //todo:really think about this:
 
 
-        System.out.println("getting started with building probabilities");
-        if(!sort3GramWithProb(c,sortedData,files[1])){
-            System.exit(1);
+        System.out.println("getting started with sorting the data");
+            if(!sort3GramWithProb(c,sortedData,files[1])){
+                System.exit(1);
         }
-
-
+        System.out.println("Successfully done");
+        System.exit(0);
     }
 
     public static boolean initData(Configuration c, String in, String output) throws IOException, ClassNotFoundException, InterruptedException {
@@ -123,6 +135,7 @@ public class WordCount {
         Job j1 = new Job(c, "job1");
         j1.setJarByClass(WordCount.class);
         j1.setMapperClass(Map1.class);
+       // j1.setCombinerClass(ReduceSumValue.class);//todo: added combiner
         j1.setReducerClass(ReduceSumValue.class);
         j1.setOutputKeyClass(Text.class);
         j1.setOutputValueClass(IntWritable.class);
@@ -130,12 +143,12 @@ public class WordCount {
         j1.setInputFormatClass(SequenceFileInputFormat.class);
         SequenceFileInputFormat.addInputPath(j1,input);
         FileOutputFormat.setOutputPath(j1, output1);
-        //todo: look for inputPath
+
 
         Job j2 = new Job(c, "job2");
         j2.setJarByClass(WordCount.class);
         j2.setMapperClass(Map2.class);
-        j2.setReducerClass(Reducer2.class);
+        j2.setReducerClass(Reducer2.class);//todo: not sure if we need to add a combiner here
         j2.setMapOutputKeyClass(Text.class);
         j2.setMapOutputValueClass(PairWritableInteger.class);
         j2.setOutputKeyClass(Text.class);
@@ -148,6 +161,7 @@ public class WordCount {
         Job j3 = new Job(c, "job3");
         j3.setJarByClass(WordCount.class);
         j3.setMapperClass(Map3.class);
+        //j1.setCombinerClass(ReduceSumValue.class);//todo: added combiner
         j3.setReducerClass(ReduceSumValue.class);
         j3.setOutputKeyClass(Text.class);
         j3.setOutputValueClass(IntWritable.class);
@@ -165,57 +179,31 @@ public class WordCount {
        // return status1;
     }
 
-    public static boolean getProbabilties(Configuration c,String output) throws IOException, ClassNotFoundException, InterruptedException {
+    public static boolean getProbabilties(Configuration c,String input,String output) throws IOException, ClassNotFoundException, InterruptedException {
         //output1 is loaded into ram.
-        String tripletsInput = "/output3/part-r-00000";
-        String pairsInput = "/output2/part-r-00000";
+//        String tripletsInput = "/output3/";
+//        String pairsInput = "/output2/";
 
-        FileSystem fs=FileSystem.get(c);
-
-        //todo: list all files in output1 folder:
-        System.out.println("\nchecking FS::\n");
-        RemoteIterator<LocatedFileStatus> iterator=fs.listFiles(new Path("/"),true);
-        while(iterator.hasNext()){
-            LocatedFileStatus fileStatus=iterator.next();
-            System.out.println(fileStatus.toString());
-        }
-        System.out.println("\n\ndone checking fs");
-
-
-        Path output1Path=new Path("/output1/part-r-00000");
-        Path output2Path=new Path(pairsInput);
-        Path output3Path=new Path(tripletsInput);
-        if(!fs.exists(output1Path)){
-            System.out.println("could not find '/output1/part-r-00000' , exit..");
-            return false;
-        }
-        if(!fs.exists(output2Path)){
-            System.out.println("could not find "+pairsInput+", exit..");
-            return false;
-        }
-        if(!fs.exists(output3Path)){
-            System.out.println("could not find "+tripletsInput+", exit..");
-            return false;
-        }
-
-        ;
-        System.out.println("outputPath1 len: "+fs.getFileStatus(output1Path).getLen() +"will be loaded into RAM.");
+        Path input1 = new Path(input + "1");
+        Path input2 = new Path(input + "2");
+        Path input3 = new Path(input + "3");
 
 
         //todo: add 2 inputs files here:
         // output 3 and output 2
-        Job j3 = new Job(c, "Join triplets with pairs - calc prob");
-        MultipleInputs.addInputPath(j3, output3Path, TripletsInputFormat.class, MapperJoinProbTriplet.class);
-        MultipleInputs.addInputPath(j3, output2Path, TripletsInputFormat.class, MapperJoinProbPair.class);
 
+        Job j3 = new Job(c, "Join triplets with pairs - calc prob");
         j3.setJarByClass(WordCount.class);
-        j3.setReducerClass(ReducerJoinProb.class);
-        j3.setOutputKeyClass(Text.class);
+        MultipleInputs.addInputPath(j3, input3, TripletsInputFormat.class, MapperJoinProb.MapperJoinProbTriplet.class);
+        MultipleInputs.addInputPath(j3, input2, TripletsInputFormat.class, MapperJoinProb.MapperJoinProbPair.class);
+
         j3.setMapOutputKeyClass(Text.class);
         j3.setMapOutputValueClass(PairWritableInteger.class);
-
+        j3.setPartitionerClass(PartitionerJoinProb.class);
+        //j3.setNumReduceTasks(1); //todo:see if this works.
+        j3.setReducerClass(ReducerJoinProb.class);
+        j3.setOutputKeyClass(Text.class);
         j3.setOutputValueClass(DoubleWritable.class);
-        TripletsInputFormat.addInputPath(j3, new Path(tripletsInput));
         FileOutputFormat.setOutputPath(j3, new Path(output));
 
 
@@ -223,7 +211,8 @@ public class WordCount {
     }
     public static boolean sort3GramWithProb(Configuration c,String input,String output) throws IOException, ClassNotFoundException, InterruptedException {
         //sort with another map reduce.
-        Job job = new Job(c, "sort keys with prob");
+        Job job = new Job(c);
+        job.setJobName("sort keys with prob");
         job.setJarByClass(WordCount.class);
         job.setMapperClass(SortProb.MapSortProb.class);
         job.setReducerClass(SortProb.ReduceSortProb.class);
@@ -232,6 +221,8 @@ public class WordCount {
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(DoubleWritable.class);
         job.setInputFormatClass(SProbInputFormat.class);
+        job.setNumReduceTasks(1); //todo:see if this works.
+
         NgramInputFormat.addInputPath(job, new Path(input)); //todo: refractor here
         FileOutputFormat.setOutputPath(job, new Path (output));
         return job.waitForCompletion(true);
